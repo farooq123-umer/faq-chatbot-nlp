@@ -1,0 +1,124 @@
+# FAQ Chatbot using BERT
+# A simple chatbot that answers frequently asked questions
+# Uses a pre-trained BERT model from HuggingFace for intent matching
+
+from flask import Flask, request, jsonify
+from transformers import pipeline
+import json
+
+app = Flask(__name__)
+
+# ── Step 1: Define FAQ data ───────────────────────────────────────────────────
+# Add your own questions and answers here
+
+faq_data = [
+    {
+        "question": "What are your working hours?",
+        "answer": "We are open Monday to Friday, 9am to 6pm."
+    },
+    {
+        "question": "How can I reset my password?",
+        "answer": "Go to the login page and click 'Forgot Password'. Enter your email and follow the instructions."
+    },
+    {
+        "question": "How do I contact support?",
+        "answer": "You can reach our support team at support@example.com or call +1-800-123-4567."
+    },
+    {
+        "question": "What is your refund policy?",
+        "answer": "We offer a 30-day money back guarantee on all purchases. Contact support to initiate a refund."
+    },
+    {
+        "question": "How long does shipping take?",
+        "answer": "Standard shipping takes 5-7 business days. Express shipping takes 1-2 business days."
+    },
+    {
+        "question": "Do you offer student discounts?",
+        "answer": "Yes! Students get 20% off with a valid student email address."
+    },
+    {
+        "question": "How do I track my order?",
+        "answer": "You will receive a tracking number via email once your order is shipped."
+    },
+]
+
+# ── Step 2: Load the model ────────────────────────────────────────────────────
+# Using a zero-shot classification pipeline from HuggingFace
+# This lets us match user questions to our FAQ without training
+
+print("Loading model... this may take a moment")
+classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+print("Model loaded!")
+
+# extract just the questions as candidate labels
+faq_questions = [item["question"] for item in faq_data]
+
+
+# ── Step 3: Find best matching FAQ ───────────────────────────────────────────
+
+def get_answer(user_question):
+    # use the model to find which FAQ question best matches the user's question
+    result = classifier(user_question, faq_questions)
+
+    # get the best match
+    best_match_question = result['labels'][0]
+    confidence = result['scores'][0]
+
+    # if confidence is too low, return a default message
+    if confidence < 0.3:
+        return "Sorry, I could not find an answer to your question. Please contact support."
+
+    # find the answer for the best matching question
+    for item in faq_data:
+        if item["question"] == best_match_question:
+            return item["answer"]
+
+    return "Sorry, something went wrong."
+
+
+# ── Step 4: Flask API ─────────────────────────────────────────────────────────
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+
+    if not data or 'question' not in data:
+        return jsonify({'error': 'Please provide a question'}), 400
+
+    user_question = data['question']
+    answer = get_answer(user_question)
+
+    return jsonify({
+        'question': user_question,
+        'answer': answer
+    })
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'running'})
+
+
+# ── Step 5: Simple test without the API ──────────────────────────────────────
+
+def test_chatbot():
+    test_questions = [
+        "What time do you open?",
+        "I forgot my password, what should I do?",
+        "Can I get my money back?",
+        "How much discount do students get?",
+    ]
+
+    print("\n── Chatbot Test ──")
+    for q in test_questions:
+        answer = get_answer(q)
+        print(f"\nQ: {q}")
+        print(f"A: {answer}")
+
+
+if __name__ == '__main__':
+    # run tests first
+    test_chatbot()
+
+    # then start the Flask server
+    print("\nStarting Flask server on http://localhost:5000")
+    app.run(debug=True, port=5000)
